@@ -4,7 +4,7 @@
 LOG_FILE="/var/log/user_management.log"
 SECURE_PASSWORDS_FILE="/var/secure/user_passwords.txt"
 
-# Ensure the log and secure directories exists
+# Ensure the log and secure directories exist
 mkdir -p /var/log
 mkdir -p /var/secure
 
@@ -36,9 +36,25 @@ create_user() {
         log_message "Group $username already exists."
     fi
 
+    # Create general groups if they do not exist
+    IFS=',' read -ra group_array <<< "$groups"
+    for group in "${group_array[@]}"; do
+        if ! getent group "$group" &>/dev/null; then
+            groupadd "$group"
+            log_message "Group $group created."
+        else
+            log_message "Group $group already exists."
+        fi
+    done
+
     # Create user with personal group and home directory
     useradd -m -g "$username" -G "$groups" "$username"
-    log_message "User $username created and added to groups $groups."
+    if [ $? -eq 0 ]; then
+        log_message "User $username created and added to groups $groups."
+    else
+        log_message "Failed to create user $username."
+        return
+    fi
 
     # Set up home directory permissions
     chmod 700 "/home/$username"
@@ -48,7 +64,12 @@ create_user() {
     # Generate a random password and set it for the user
     password=$(openssl rand -base64 12)
     echo "$username:$password" | chpasswd
-    log_message "Password for user $username set."
+    if [ $? -eq 0 ]; then
+        log_message "Password for user $username set."
+    else
+        log_message "Failed to set password for user $username."
+        return
+    fi
 
     # Store the password securely in comma-delimited format
     echo "$username,$password" >> $SECURE_PASSWORDS_FILE
@@ -56,7 +77,7 @@ create_user() {
 
 # Ensure the input file is provided
 if [ -z "$1" ]; then
-    echo "You gaz include input file nau: $0 <input_file>"
+    echo "Usage: $0 <input_file>"
     exit 1
 fi
 
