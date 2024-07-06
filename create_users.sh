@@ -17,16 +17,15 @@ log_message() {
     echo "$(date +'%Y-%m-%d %H:%M:%S') - $1" >> $LOG_FILE
 }
 
+# Function to generate a random password
+generate_password() {
+    openssl rand -base64 12
+}
+
 # Creates a user with a random password
 create_user() {
     local username="$1"
     local groups="$2"
-
-    # Check if user already exists
-    if id "$username" &>/dev/null; then
-        log_message "User $username already exists. Skipping."
-        return
-    fi
 
     # Create personal group
     if ! getent group "$username" &>/dev/null; then
@@ -47,32 +46,30 @@ create_user() {
         fi
     done
 
-    # Create user with personal group and home directory
-    useradd -m -g "$username" -G "$groups" "$username"
-    if [ $? -eq 0 ]; then
-        log_message "User $username created and added to groups $groups."
+    # Check if user already exists
+    if id "$username" &>/dev/null; then
+        log_message "User $username already exists. Adding to groups."
+        usermod -aG "$groups" "$username"
+        log_message "User $username added to groups $groups."
     else
-        log_message "Failed to create user $username."
-        return
+        # Create user with personal group and home directory
+        password=$(generate_password)
+        useradd -m -g "$username" -G "$groups" "$username"
+        if [ $? -eq 0 ]; then
+            echo "$username:$password" | chpasswd
+            log_message "User $username created and added to groups $groups."
+            log_message "Password for user $username set."
+            echo "$username,$password" >> $SECURE_PASSWORDS_FILE
+        else
+            log_message "Failed to create user $username."
+            return
+        fi
+
+        # Set up home directory permissions
+        chmod 700 "/home/$username"
+        chown "$username:$username" "/home/$username"
+        log_message "Home directory for $username set up with appropriate permissions."
     fi
-
-    # Set up home directory permissions
-    chmod 700 "/home/$username"
-    chown "$username:$username" "/home/$username"
-    log_message "Home directory for $username set up with appropriate permissions."
-
-    # Generate a random password and set it for the user
-    password=$(openssl rand -base64 12)
-    echo "$username:$password" | chpasswd
-    if [ $? -eq 0 ]; then
-        log_message "Password for user $username set."
-    else
-        log_message "Failed to set password for user $username."
-        return
-    fi
-
-    # Store the password securely in comma-delimited format
-    echo "$username,$password" >> $SECURE_PASSWORDS_FILE
 }
 
 # Ensure the input file is provided
